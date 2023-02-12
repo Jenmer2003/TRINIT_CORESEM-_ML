@@ -1,0 +1,101 @@
+import pickle
+import numpy as np
+from elasticsearch import Elasticsearch
+from sklearn.preprocessing import LabelEncoder
+from scipy.sparse import csr_matrix
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Conv2D, Flatten
+from queue import PriorityQueue
+
+# Define the CNN model
+model = Sequential()
+model.add(Conv2D(64, kernel_size=3, activation="relu", input_shape=(8, 8, 1)))
+model.add(Flatten())
+model.add(Dense(10, activation="softmax"))
+model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
+
+# Generate a sample dataset for demonstration purposes
+dataset =pd.read_csv("data.csv")
+X = dataset.iloc[:, :-1].values
+y = dataset.iloc[:, -1].values
+
+# Load the data
+data = pd.read_csv("data.csv")
+
+#One hot encoding for Crop
+crop_encoded = pd.get_dummies(data['Crop'])
+
+#One hot encoding for Location
+location_encoded = pd.get_dummies(data['Location'])
+
+#One hot encoding for Soil type
+soil_encoded = pd.get_dummies(data['Soil type'])
+
+#Combine the one hot encoded datasets with the original dataset
+data = pd.concat([data, crop_encoded, location_encoded, soil_encoded], axis=1)
+
+#Drop the original columns for Crop, Location, and Soil Type
+data = data.drop(['Crop', 'Location', 'Soil type'], axis=1)
+
+#Output the final dataset
+print(data.head())
+
+
+#Split the data into training and test set
+X = data.iloc[:,:-1].values
+train_data, test_data, train_labels, test_labels = train_test_split(X, data.iloc[:,-1].values, test_size=0.2)
+
+# Train the CNN model on the training data
+model.fit(train_data, test_data, epochs=10, batch_size=32, validation_data=(train_labels, test_labels))
+
+# Serialize the model to a file
+model_file = "cnn_model.pkl"
+with open(model_file, "wb") as f:
+    pickle.dump(model, f)
+
+# Index the serialized model file in Elasticsearch
+es = Elasticsearch()
+with open(model_file, "rb") as f:
+    es.index(index="models", doc_type="cnn", id=1, body={"file": f.read()})
+
+# Index the predictions made by the model in Elasticsearch
+predictions = model.predict(X_test)
+for i, prediction in enumerate(predictions):
+    soil_type = encoder.categories_[0][np.argmax(prediction)].item()
+    es.index(index="predictions", doc_type="soil", body={"soil_type": soil_type, "Location": [i, i]})
+
+#Dijkstra Algorithm
+def dijkstra(graph, start, end):
+    distances = {node: float("inf") for node in graph}
+    distances[start] = 0
+    queue = PriorityQueue()
+    queue.put((0, start))
+    while not queue.empty():
+        current_distance, current_node = queue.get()
+        if current_node == end:
+            break
+        for neighbor, edge_weight in graph[current_node].items():
+            new_distance = current_distance + edge_weight
+            if new_distance < distances[neighbor]:
+                distances[neighbor] = new_distance
+                queue.put((new_distance, neighbor))
+    return distances[end]
+
+# Define the sample graph
+graph = {
+    0: {1: 1, 2: 1},
+    1: {0: 1, 2: 1, 3: 1, 4: 1},
+    2: {0: 1, 1: 1, 4: 1, 5: 1, 6: 1},
+    3: {1: 1, 4: 1},
+    4: {1: 1, 2: 1, 3: 1, 5: 1},
+    5: {2: 1, 4: 1, 6: 1},
+    6: {2: 1, 5: 1}
+}
+
+# Find the shortest distance between node 0 and node 6
+start = 0
+end = 6
+shortest_distance = dijkstra(graph, start, end)
+print(f"The shortest distance between node {start} and node {end} is {shortest_distance}")
